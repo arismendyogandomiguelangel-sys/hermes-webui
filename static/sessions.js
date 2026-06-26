@@ -6160,6 +6160,11 @@ function _attachProjectQuickCreateButton(chip, project){
     if(typeof e.stopPropagation==='function') e.stopPropagation();
     if(typeof e.stopImmediatePropagation==='function') e.stopImmediatePropagation();
   };
+  const stopTouchBubble=function(e){
+    if(!e) return;
+    if(typeof e.stopPropagation==='function') e.stopPropagation();
+    if(typeof e.stopImmediatePropagation==='function') e.stopImmediatePropagation();
+  };
   btn.onclick=(e)=>{
     stop(e);
     _setActiveProjectFilter(project.project_id);
@@ -6167,8 +6172,8 @@ function _attachProjectQuickCreateButton(chip, project){
   };
   btn.ondblclick=(e)=>{stop(e);};
   btn.oncontextmenu=(e)=>{stop(e);};
-  btn.ontouchstart=(e)=>{stop(e);};
-  btn.ontouchend=(e)=>{stop(e);};
+  btn.ontouchstart=(e)=>{stopTouchBubble(e);};
+  btn.ontouchend=(e)=>{stopTouchBubble(e);};
   chip.appendChild(btn);
 }
 

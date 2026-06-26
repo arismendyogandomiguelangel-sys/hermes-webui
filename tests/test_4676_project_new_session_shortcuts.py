@@ -259,11 +259,16 @@ const ev = {
   preventDefault() { params.preventCount++; },
   stopImmediatePropagation() { params.stopImmediateCount++; },
 };
+const touchEv = {
+  stopPropagation() { params.touchStopCount++; },
+  preventDefault() { params.touchPreventCount++; },
+  stopImmediatePropagation() { params.touchStopImmediateCount++; },
+};
 btn.onclick(ev);
 btn.ondblclick(ev);
 btn.oncontextmenu(ev);
-btn.ontouchstart(ev);
-btn.ontouchend(ev);
+btn.ontouchstart(touchEv);
+btn.ontouchend(touchEv);
 console.log(JSON.stringify({
   buttonClass: btn.className,
   buttonTag: btn.tagName,
@@ -273,6 +278,9 @@ console.log(JSON.stringify({
   stopCount: params.stopCount,
   preventCount: params.preventCount,
   stopImmediateCount: params.stopImmediateCount,
+  touchStopCount: params.touchStopCount,
+  touchPreventCount: params.touchPreventCount,
+  touchStopImmediateCount: params.touchStopImmediateCount,
   calls: params.calls,
 }));
 """
@@ -285,6 +293,9 @@ def _run_quick_create_case(project_id="example-project"):
         "stopCount": 0,
         "preventCount": 0,
         "stopImmediateCount": 0,
+        "touchStopCount": 0,
+        "touchPreventCount": 0,
+        "touchStopImmediateCount": 0,
     }
     result = subprocess.run(
         [NODE, "-e", _HELPER, str(SESSIONS_JS), json.dumps(payload)],
@@ -310,6 +321,9 @@ def test_project_chip_quick_create_keeps_active_filter_and_uses_project_override
     assert out["newSession"] == {"flash": False, "options": {"project_id": "project-123"}}
     assert {"type": "set-filter", "projectId": "project-123"} in out["calls"]
     assert {"type": "new-session", "flash": False, "options": {"project_id": "project-123"}} in out["calls"]
-    assert out["stopCount"] >= 5
-    assert out["preventCount"] >= 5
-    assert out["stopImmediateCount"] >= 5
+    assert out["stopCount"] >= 3
+    assert out["preventCount"] >= 3
+    assert out["stopImmediateCount"] >= 3
+    assert out["touchStopCount"] >= 2
+    assert out["touchPreventCount"] == 0
+    assert out["touchStopImmediateCount"] >= 2
