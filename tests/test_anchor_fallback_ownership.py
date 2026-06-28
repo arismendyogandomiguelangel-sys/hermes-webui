@@ -15,10 +15,26 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-UI_JS = (ROOT / "static" / "ui.js").read_text(encoding="utf-8")
-PHASE0_DOC = (
+UI_JS_PATH = ROOT / "static" / "ui.js"
+PHASE0_DOC_PATH = (
     ROOT / "docs" / "architecture" / "stable-assistant-turn-anchor-phase0.md"
-).read_text(encoding="utf-8")
+)
+
+
+def _read_required_text(path: Path, label: str) -> str:
+    assert path.exists(), f"{label} not found at {path}"
+    return path.read_text(encoding="utf-8")
+
+
+def _ui_js() -> str:
+    return _read_required_text(UI_JS_PATH, "static/ui.js")
+
+
+def _phase0_doc() -> str:
+    return _read_required_text(
+        PHASE0_DOC_PATH,
+        "Stable Assistant Turn Anchors Phase 0 inventory",
+    )
 
 
 def _run_node_script(script: str) -> str:
@@ -32,46 +48,78 @@ def _run_node_script(script: str) -> str:
     return result.stdout.strip()
 
 
-def _function_body(src: str, name: str) -> str:
+def _skip_js_string_or_comment(src: str, idx: int) -> int:
+    if src.startswith("//", idx):
+        end = src.find("\n", idx + 2)
+        return len(src) if end == -1 else end + 1
+    if src.startswith("/*", idx):
+        end = src.find("*/", idx + 2)
+        assert end != -1, "JavaScript block comment did not close"
+        return end + 2
+    quote = src[idx]
+    if quote not in {"'", '"', "`"}:
+        return idx
+    idx += 1
+    while idx < len(src):
+        if src[idx] == "\\":
+            idx += 2
+            continue
+        if src[idx] == quote:
+            return idx + 1
+        idx += 1
+    raise AssertionError(f"JavaScript string literal {quote!r} did not close")
+
+
+def _matching_delimiter(src: str, open_idx: int, opener: str, closer: str) -> int:
+    assert src[open_idx] == opener, f"expected {opener!r} at {open_idx}"
+    depth = 0
+    idx = open_idx
+    while idx < len(src):
+        next_idx = _skip_js_string_or_comment(src, idx)
+        if next_idx != idx:
+            idx = next_idx
+            continue
+        if src[idx] == opener:
+            depth += 1
+        elif src[idx] == closer:
+            depth -= 1
+            if depth == 0:
+                return idx
+        idx += 1
+    raise AssertionError(f"{opener}{closer} delimiter did not close")
+
+
+def _function_source(src: str, name: str) -> str:
     start = src.find(f"function {name}")
     assert start != -1, f"{name} not found"
-    params = src.find("(", start)
-    assert params != -1, f"{name} params not found"
-    depth = 0
-    close = -1
-    for idx in range(params, len(src)):
-        if src[idx] == "(":
-            depth += 1
-        elif src[idx] == ")":
-            depth -= 1
-            if depth == 0:
-                close = idx
-                break
-    assert close != -1, f"{name} params did not close"
-    brace = src.find("{", close)
+    params_open = src.find("(", start)
+    assert params_open != -1, f"{name} params not found"
+    params_close = _matching_delimiter(src, params_open, "(", ")")
+    brace = src.find("{", params_close)
     assert brace != -1, f"{name} body not found"
-    depth = 0
-    for idx in range(brace, len(src)):
-        if src[idx] == "{":
-            depth += 1
-        elif src[idx] == "}":
-            depth -= 1
-            if depth == 0:
-                return src[brace + 1 : idx]
-    raise AssertionError(f"{name} body did not close")
+    close = _matching_delimiter(src, brace, "{", "}")
+    return src[start : close + 1]
+
+
+def _function_body(src: str, name: str) -> str:
+    source = _function_source(src, name)
+    brace = source.find("{")
+    return source[brace + 1 : -1]
 
 
 def test_phase0_doc_records_settled_fallback_ownership_matrix():
-    assert "### Settled Fallback Ownership Matrix" in PHASE0_DOC
-    assert "_anchor_activity_scene` is the semantic" in PHASE0_DOC
-    assert "| Settled Compact Worklog activity |" in PHASE0_DOC
-    assert "| Settled Transparent Stream activity |" in PHASE0_DOC
-    assert "| Historical / non-anchor transcripts |" in PHASE0_DOC
-    assert "This matrix is an audit baseline, not permission to delete fallbacks." in PHASE0_DOC
+    doc = _phase0_doc()
+
+    assert "### Settled Fallback Ownership Matrix" in doc
+    assert "_anchor_activity_scene` is the semantic" in doc
+    assert "| Settled Compact Worklog activity |" in doc
+    assert "| Settled Transparent Stream activity |" in doc
+    assert "| Historical / non-anchor transcripts |" in doc
+    assert "This matrix is an audit baseline, not permission to delete fallbacks." in doc
 
 
 def test_transparent_raw_content_helper_is_fallback_only_when_anchor_scene_absent():
-    helper = _function_body(UI_JS, "_transparentStreamOrderedParts")
+    helper = _function_body(_ui_js(), "_transparentStreamOrderedParts")
 
     transparent_gate = helper.index("!isTransparentStream()) return null;")
     role_gate = helper.index("!message||message.role!=='assistant'||message._live")
@@ -85,46 +133,15 @@ def test_transparent_raw_content_helper_is_fallback_only_when_anchor_scene_absen
 
 
 def test_transparent_raw_content_fallback_exits_for_anchor_owned_messages():
+    helper_source = _function_source(_ui_js(), "_transparentStreamOrderedParts")
     script = textwrap.dedent(
         f"""
-        const fs = require('fs');
-        const uiPath = {json.dumps(str(ROOT / "static" / "ui.js"))};
-        const src = fs.readFileSync(uiPath, 'utf8');
-
-        function functionSource(source, name) {{
-          const start = source.indexOf(`function ${{name}}`);
-          if (start < 0) throw new Error(`${{name}} not found`);
-          const params = source.indexOf('(', start);
-          let depth = 0;
-          let close = -1;
-          for (let idx = params; idx < source.length; idx += 1) {{
-            if (source[idx] === '(') depth += 1;
-            else if (source[idx] === ')') {{
-              depth -= 1;
-              if (depth === 0) {{
-                close = idx;
-                break;
-              }}
-            }}
-          }}
-          const brace = source.indexOf('{{', close);
-          depth = 0;
-          for (let idx = brace; idx < source.length; idx += 1) {{
-            if (source[idx] === '{{') depth += 1;
-            else if (source[idx] === '}}') {{
-              depth -= 1;
-              if (depth === 0) return source.slice(start, idx + 1);
-            }}
-          }}
-          throw new Error(`${{name}} body did not close`);
-        }}
-
         let transparentStream = true;
         function isTransparentStream() {{
           return transparentStream;
         }}
 
-        eval(functionSource(src, '_transparentStreamOrderedParts'));
+        eval({json.dumps(helper_source)});
 
         const anchorOwned = {{
           role: 'assistant',
@@ -173,7 +190,7 @@ def test_transparent_raw_content_fallback_exits_for_anchor_owned_messages():
 
 
 def test_settled_legacy_tool_rebuild_excludes_anchor_owned_turns():
-    render = _function_body(UI_JS, "renderMessages")
+    render = _function_body(_ui_js(), "renderMessages")
 
     set_decl = render.index("const anchorOwnedAssistantRawIdxs=new Set();")
     collect_segments = render.index("turn.querySelectorAll('.assistant-segment[data-msg-idx]')")
@@ -187,7 +204,7 @@ def test_settled_legacy_tool_rebuild_excludes_anchor_owned_turns():
 
 
 def test_settled_legacy_activity_buckets_skip_anchor_owned_turns_before_rendering():
-    render = _function_body(UI_JS, "renderMessages")
+    render = _function_body(_ui_js(), "renderMessages")
 
     tool_loop = render.index("for(const tc of (S.toolCalls||[])){")
     tool_skip = render.index("if(anchorOwnedAssistantRawIdxs.has(aIdx)) continue;", tool_loop)
@@ -202,8 +219,11 @@ def test_settled_legacy_activity_buckets_skip_anchor_owned_turns_before_renderin
 
 
 def test_anchor_settled_renderers_remain_the_primary_scene_path():
-    settled = _function_body(UI_JS, "_renderSettledAnchorSceneForMessage")
-    transparent = _function_body(UI_JS, "_renderSettledAnchorSceneTransparentForMessage")
+    settled = _function_body(_ui_js(), "_renderSettledAnchorSceneForMessage")
+    transparent = _function_body(
+        _ui_js(),
+        "_renderSettledAnchorSceneTransparentForMessage",
+    )
 
     assert "if(!message||!message._anchor_activity_scene||!segment) return false;" in settled
     assert "return _renderSettledAnchorSceneTransparentForMessage(message,segment,rawIdx);" in settled
