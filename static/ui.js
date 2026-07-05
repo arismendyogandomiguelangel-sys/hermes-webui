@@ -1312,16 +1312,29 @@ function _syncNavActionMirrors(){
     if(!sourceIds.has(mirror.getAttribute('data-nav-action-mirror')))mirror.remove();
   });
   sources.forEach(source=>{
-    source.classList.add('nav-action-visible');
+    const sourceVisible=(()=>{
+      if(source.hidden||source.getAttribute('aria-hidden')==='true')return false;
+      if(source.classList.contains('nav-tab-hidden'))return false;
+      if(source.style&&(source.style.display==='none'||source.style.visibility==='hidden'))return false;
+      if(typeof window!=='undefined'&&typeof window.getComputedStyle==='function'){
+        const computed=window.getComputedStyle(source);
+        if(computed&&(computed.display==='none'||computed.visibility==='hidden'))return false;
+      }
+      return true;
+    })();
     let mirror=mirrors.find(el=>el.getAttribute('data-nav-action-mirror')===source.id);
     if(!mirror){
       mirror=source.cloneNode(true);
       _stripInlineEventHandlers(mirror);
       mirror.id=source.id+'Mobile';
       mirror.classList.remove('rail-btn');
-      mirror.classList.add('nav-action-visible','has-tooltip--bottom');
+      mirror.classList.add('has-tooltip--bottom');
       mirror.setAttribute('data-nav-action-mirror',source.id);
-      mirror.addEventListener('click',e=>{e.preventDefault();if(mirror._navActionSource)mirror._navActionSource.click();});
+      mirror.addEventListener('click',e=>{
+        e.preventDefault();
+        if(mirror._navActionSource)mirror._navActionSource.click();
+        if(typeof closeMobileSidebar==='function')closeMobileSidebar();
+      });
       const anchor=sidebar.querySelector('.dashboard-link,[data-dashboard-link]')||sidebar.querySelector('[data-panel="logs"]');
       sidebar.insertBefore(mirror,anchor||null);
     }else{
@@ -1329,6 +1342,7 @@ function _syncNavActionMirrors(){
       _stripInlineEventHandlers(mirror);
     }
     mirror._navActionSource=source;
+    mirror.classList.toggle('nav-action-visible',sourceVisible);
     const label=source.getAttribute('data-tooltip')||source.getAttribute('aria-label')||'';
     if(label)mirror.setAttribute('data-label',label);
   });
@@ -1336,7 +1350,12 @@ function _syncNavActionMirrors(){
 function _initNavActionMirrors(){
   _syncNavActionMirrors();
   const rail=document.querySelector('.rail');
-  if(rail&&window.MutationObserver)new MutationObserver(_syncNavActionMirrors).observe(rail,{childList:true});
+  if(rail&&window.MutationObserver)new MutationObserver(_syncNavActionMirrors).observe(rail,{
+    childList:true,
+    subtree:true,
+    attributes:true,
+    attributeFilter:['class','style','hidden','aria-hidden','data-tooltip','aria-label'],
+  });
 }
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',_initNavActionMirrors,{once:true});
 else _initNavActionMirrors();
