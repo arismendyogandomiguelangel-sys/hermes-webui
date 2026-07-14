@@ -252,14 +252,27 @@ def _gateway_running_pid(gateway_status: Any, pid_path: Path | None) -> int | No
         return get_running_pid()
 
 
+def _callable_code_declares_parameter(get_running_pid: Any, name: str) -> bool:
+    """Return True when a Python callable's own code declares *name*."""
+    target = getattr(get_running_pid, "__func__", get_running_pid)
+    code = getattr(target, "__code__", None)
+    if code is None:
+        return False
+    declared_count = int(getattr(code, "co_argcount", 0)) + int(
+        getattr(code, "co_kwonlyargcount", 0)
+    )
+    return name in code.co_varnames[:declared_count]
+
+
 def _declared_pid_path_parameter(
     get_running_pid: Any,
-) -> inspect.Parameter | None:
+) -> tuple[inspect.Parameter, int, list[inspect.Parameter]] | None:
     try:
-        signature = inspect.signature(get_running_pid)
+        signature = inspect.signature(get_running_pid, follow_wrapped=False)
     except (TypeError, ValueError):
         return None
-    for param in signature.parameters.values():
+    params = list(signature.parameters.values())
+    for idx, param in enumerate(params):
         if param.kind not in (
             inspect.Parameter.POSITIONAL_ONLY,
             inspect.Parameter.POSITIONAL_OR_KEYWORD,
@@ -267,17 +280,68 @@ def _declared_pid_path_parameter(
         ):
             continue
         name = str(param.name or "").lower()
-        if "path" in name and "pid" in name:
-            return param
+        if (
+            "path" in name
+            and "pid" in name
+            and _callable_code_declares_parameter(get_running_pid, param.name)
+        ):
+            positional_index = sum(
+                1
+                for earlier in params[:idx]
+                if earlier.kind
+                in (
+                    inspect.Parameter.POSITIONAL_ONLY,
+                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                )
+            )
+            return param, positional_index, params
     return None
+
+
+def _positional_only_pid_args(
+    params: list[inspect.Parameter],
+    positional_index: int,
+    pid_path: Path,
+) -> list[Any] | None:
+    positional_params = [
+        param
+        for param in params
+        if param.kind
+        in (
+            inspect.Parameter.POSITIONAL_ONLY,
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        )
+    ]
+    if positional_index >= len(positional_params):
+        return None
+    args: list[Any] = []
+    for param in positional_params[:positional_index]:
+        if param.default is inspect.Parameter.empty:
+            return None
+        args.append(param.default)
+    args.append(pid_path)
+    return args
+
+
+def _accepts_cleanup_stale_keyword(params: list[inspect.Parameter]) -> bool:
+    return any(
+        param.name == "cleanup_stale"
+        and param.kind
+        in (
+            inspect.Parameter.KEYWORD_ONLY,
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        )
+        for param in params
+    )
 
 
 def _gateway_running_pid_strict_path(gateway_status: Any, pid_path: Path) -> int | None:
     """Read a PID from an explicit path only; never fall back to ambient state."""
     get_running_pid = gateway_status.get_running_pid
-    pid_path_param = _declared_pid_path_parameter(get_running_pid)
-    if pid_path_param is None:
+    pid_path_match = _declared_pid_path_parameter(get_running_pid)
+    if pid_path_match is None:
         return None
+    pid_path_param, positional_index, params = pid_path_match
 
     if pid_path_param.kind is inspect.Parameter.KEYWORD_ONLY:
         kwargs = {pid_path_param.name: pid_path}
@@ -297,19 +361,21 @@ def _gateway_running_pid_strict_path(gateway_status: Any, pid_path: Path) -> int
             try:
                 return get_running_pid(**kwargs)
             except TypeError:
-                pass
-
-    if pid_path_param.kind in (
-        inspect.Parameter.POSITIONAL_ONLY,
-        inspect.Parameter.POSITIONAL_OR_KEYWORD,
-    ):
-        try:
-            return get_running_pid(pid_path, cleanup_stale=False)
-        except TypeError:
-            try:
-                return get_running_pid(pid_path)
-            except TypeError:
                 return None
+
+    if pid_path_param.kind is inspect.Parameter.POSITIONAL_ONLY:
+        args = _positional_only_pid_args(params, positional_index, pid_path)
+        if args is None:
+            return None
+        if _accepts_cleanup_stale_keyword(params):
+            try:
+                return get_running_pid(*args, cleanup_stale=False)
+            except TypeError:
+                pass
+        try:
+            return get_running_pid(*args)
+        except TypeError:
+            return None
     return None
 
 

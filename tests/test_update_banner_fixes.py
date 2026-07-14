@@ -22,6 +22,7 @@ import io
 import json
 import subprocess
 import types
+import functools
 
 import pytest
 
@@ -1139,6 +1140,180 @@ class TestAgentUpdateRequiresGatewayRestart:
         assert ok is False
         assert result["status"] == "failed"
         assert calls["ambient_pid"] == 0
+        assert [call[0] for call in calls["popen"]] == [
+            ["/mock/bin/hermes", "--profile", "default", "gateway", "restart"],
+            ["/mock/bin/hermes", "--profile", "default", "gateway", "restart"],
+        ]
+        assert [call[1]["HERMES_HOME"] for call in calls["popen"]] == [str(root_home), str(root_home)]
+
+    def test_agent_gateway_restart_wrapped_kwargs_pid_change_fails_closed(
+        self,
+        monkeypatch,
+        tmp_path,
+    ):
+        from api import agent_health, gateway_restart, profiles
+        import api.updates as upd
+
+        root_home = tmp_path / ".hermes"
+        sticky_home = root_home / "profiles" / "work"
+        sticky_home.mkdir(parents=True)
+        calls = {"popen": [], "ambient_pid": 0}
+
+        class FailedRestartProcess:
+            returncode = 7
+
+            def communicate(self, timeout=None):
+                return "", "restart failed"
+
+        def declared_pid_reader(pid_path=None, *, cleanup_stale=True):
+            raise AssertionError("wrapped declaration must not be followed")
+
+        class WrappedKwargsGatewayStatus:
+            def __init__(self):
+                self._pids = iter([201, 202])
+
+            @functools.wraps(declared_pid_reader)
+            def get_running_pid(self, **kwargs):
+                calls["ambient_pid"] += 1
+                return next(self._pids)
+
+        def fake_popen(args, stdout=None, stderr=None, text=True, env=None):
+            calls["popen"].append((args, dict(env or {})))
+            return FailedRestartProcess()
+
+        monkeypatch.setattr(profiles, "_DEFAULT_HERMES_HOME", root_home)
+        monkeypatch.setattr(profiles, "_active_profile", "work")
+        monkeypatch.setattr(gateway_restart, "_GATEWAY_RESTART_LOCK", threading.Lock())
+        monkeypatch.setattr(gateway_restart.shutil, "which", lambda cmd: "/mock/bin/hermes")
+        monkeypatch.setattr(gateway_restart.subprocess, "Popen", fake_popen)
+        monkeypatch.setattr(agent_health, "_gateway_status_module", WrappedKwargsGatewayStatus)
+        monkeypatch.setattr(upd.time, 'sleep', lambda seconds: None)
+
+        profiles.set_request_profile("default")
+        try:
+            ok, result = upd._ensure_gateway_restart_for_agent_update()
+        finally:
+            profiles.clear_request_profile()
+
+        assert ok is False
+        assert result["status"] == "failed"
+        assert calls["ambient_pid"] == 0
+        assert [call[0] for call in calls["popen"]] == [
+            ["/mock/bin/hermes", "--profile", "default", "gateway", "restart"],
+            ["/mock/bin/hermes", "--profile", "default", "gateway", "restart"],
+        ]
+        assert [call[1]["HERMES_HOME"] for call in calls["popen"]] == [str(root_home), str(root_home)]
+
+    def test_agent_gateway_restart_wrapped_args_pid_change_fails_closed(
+        self,
+        monkeypatch,
+        tmp_path,
+    ):
+        from api import agent_health, gateway_restart, profiles
+        import api.updates as upd
+
+        root_home = tmp_path / ".hermes"
+        sticky_home = root_home / "profiles" / "work"
+        sticky_home.mkdir(parents=True)
+        calls = {"popen": [], "ambient_pid": 0}
+
+        class FailedRestartProcess:
+            returncode = 7
+
+            def communicate(self, timeout=None):
+                return "", "restart failed"
+
+        def declared_pid_reader(pid_path=None, *, cleanup_stale=True):
+            raise AssertionError("wrapped declaration must not be followed")
+
+        class WrappedArgsGatewayStatus:
+            def __init__(self):
+                self._pids = iter([201, 202])
+
+            @functools.wraps(declared_pid_reader)
+            def get_running_pid(self, *args):
+                calls["ambient_pid"] += 1
+                return next(self._pids)
+
+        def fake_popen(args, stdout=None, stderr=None, text=True, env=None):
+            calls["popen"].append((args, dict(env or {})))
+            return FailedRestartProcess()
+
+        monkeypatch.setattr(profiles, "_DEFAULT_HERMES_HOME", root_home)
+        monkeypatch.setattr(profiles, "_active_profile", "work")
+        monkeypatch.setattr(gateway_restart, "_GATEWAY_RESTART_LOCK", threading.Lock())
+        monkeypatch.setattr(gateway_restart.shutil, "which", lambda cmd: "/mock/bin/hermes")
+        monkeypatch.setattr(gateway_restart.subprocess, "Popen", fake_popen)
+        monkeypatch.setattr(agent_health, "_gateway_status_module", WrappedArgsGatewayStatus)
+        monkeypatch.setattr(upd.time, 'sleep', lambda seconds: None)
+
+        profiles.set_request_profile("default")
+        try:
+            ok, result = upd._ensure_gateway_restart_for_agent_update()
+        finally:
+            profiles.clear_request_profile()
+
+        assert ok is False
+        assert result["status"] == "failed"
+        assert calls["ambient_pid"] == 0
+        assert [call[0] for call in calls["popen"]] == [
+            ["/mock/bin/hermes", "--profile", "default", "gateway", "restart"],
+            ["/mock/bin/hermes", "--profile", "default", "gateway", "restart"],
+        ]
+        assert [call[1]["HERMES_HOME"] for call in calls["popen"]] == [str(root_home), str(root_home)]
+
+    def test_agent_gateway_restart_shifted_positional_only_pid_path_is_bound(
+        self,
+        monkeypatch,
+        tmp_path,
+    ):
+        from api import agent_health, gateway_restart, profiles
+        import api.updates as upd
+
+        root_home = tmp_path / ".hermes"
+        sticky_home = root_home / "profiles" / "work"
+        sticky_home.mkdir(parents=True)
+        calls = {"popen": [], "pid_paths": [], "ambient_pid": 0}
+
+        class FailedRestartProcess:
+            returncode = 7
+
+            def communicate(self, timeout=None):
+                return "", "restart failed"
+
+        class ShiftedPositionalOnlyGatewayStatus:
+            def get_running_pid(self, ambient=None, pid_path=None, /, *, cleanup_stale=True):
+                if pid_path is None:
+                    calls["ambient_pid"] += 1
+                    return 202
+                path = pathlib.Path(pid_path)
+                calls["pid_paths"].append(path)
+                if path == root_home / "gateway.pid":
+                    return 101
+                return None
+
+        def fake_popen(args, stdout=None, stderr=None, text=True, env=None):
+            calls["popen"].append((args, dict(env or {})))
+            return FailedRestartProcess()
+
+        monkeypatch.setattr(profiles, "_DEFAULT_HERMES_HOME", root_home)
+        monkeypatch.setattr(profiles, "_active_profile", "work")
+        monkeypatch.setattr(gateway_restart, "_GATEWAY_RESTART_LOCK", threading.Lock())
+        monkeypatch.setattr(gateway_restart.shutil, "which", lambda cmd: "/mock/bin/hermes")
+        monkeypatch.setattr(gateway_restart.subprocess, "Popen", fake_popen)
+        monkeypatch.setattr(agent_health, "_gateway_status_module", ShiftedPositionalOnlyGatewayStatus)
+        monkeypatch.setattr(upd.time, 'sleep', lambda seconds: None)
+
+        profiles.set_request_profile("default")
+        try:
+            ok, result = upd._ensure_gateway_restart_for_agent_update()
+        finally:
+            profiles.clear_request_profile()
+
+        assert ok is False
+        assert result["status"] == "failed"
+        assert calls["ambient_pid"] == 0
+        assert calls["pid_paths"] == [root_home / "gateway.pid", root_home / "gateway.pid"]
         assert [call[0] for call in calls["popen"]] == [
             ["/mock/bin/hermes", "--profile", "default", "gateway", "restart"],
             ["/mock/bin/hermes", "--profile", "default", "gateway", "restart"],
