@@ -5,6 +5,8 @@
 
 ### Added
 
+- **Pinch-to-zoom for Mermaid diagrams on touch devices.** The zoomable Mermaid viewer (which already had mouse-wheel zoom + single-finger pan) now supports two-finger pinch-to-zoom on phones/tablets, anchored on the pinch midpoint. Pointer/drag handlers are guarded so an active pinch never fights the pan gesture; desktop mouse-wheel zoom and single-finger pan are unchanged. Uses Touch Events for iOS Safari robustness. Thanks @silent-reader-cn. (#5913)
+
 - **Collapsed `read_file` tool rows now show the requested line range.** When the agent reads a slice of a file (`read_file` with `offset`/`limit`), the collapsed tool label now appends the range — e.g. `Read hermes_constants.py · L321-480`, or `L42` for an offset-only read — so you can see which part of a large file was read without expanding the row. Full-file reads and any tool call without a trustworthy positive-integer range keep the plain filename label (invalid, non-integer, non-positive, and overflowing ranges all fall back safely). Only `read_file` is affected. Thanks @franksong2702. (#6062)
 
 - **Images and media now render inline *as the response streams*, not just after it finishes.** When the assistant emits a `MEDIA:` token (generated image, video, audio, PDF, diff, CSV, Excalidraw, etc.) mid-turn, it now appears inline in real time during streaming instead of only materializing once the turn settles — including markers that arrive split across streaming chunks. Media routes through the same escaped `/api/media` path (no XSS surface: `javascript:`/`data:`/`file:` neutralized, SVG stays an `<img>`), remote `.webm` correctly renders as video, and normal prose streaming (including the fade effect) is unchanged when no media is present. Thanks @silent-reader-cn. (#5802)
