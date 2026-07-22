@@ -1,0 +1,52 @@
+{
+  "_comment": "Alihanetización de Hermes — manifiesto de MCPs que convierten a Hermes en Alihas (Amo de Llaves). v1.0 2026-07-02.",
+  "_reglas": [
+    "NINGÚN secreto va aquí en texto plano. Los valores reales viven en Agent Vault (Infisical) y se leen en caliente vía infisical-mcp.",
+    "Antes de instalar/activar cualquier server nuevo: scanner ALIHAND (regla ALIHA sin excepciones).",
+    "Orden de conexión: 1) infisical (llaves) → 2) gestor-memory (memoria) → 3) neurogestor (gobierno y corredor) → 4) adrive (archivos).",
+    "NeuroGestor es lectura por defecto. Las escrituras requieren el grant humano corridor_config:write; humanOnly nunca se automatiza.",
+    "Este archivo sirve como manifiesto de ambos runtimes; el runtime activo de Hermes se mantiene en %LOCALAPPDATA%\\hermes\\config.yaml."
+  ],
+  "mcpServers": {
+    "infisical": {
+      "_rol": "Agent Vault — provee TODAS las llaves en caliente. Es el primero en conectar.",
+      "command": "node",
+      "args": ["../../infisical-mcp/index.js"],
+      "env": {
+        "INFISICAL_URL": "http://127.0.0.1:14321",
+        "INFISICAL_CLIENT_ID": "${leer_de_vault_o_env_local}",
+        "INFISICAL_CLIENT_SECRET": "${leer_de_vault_o_env_local}"
+      },
+      "_estado": "existe (código completo). PENDIENTE: poblar la bóveda con secretos reales (Fase 0 del maestro)."
+    },
+    "subconsciente": {
+      "_rol": "Memoria semántica del ecosistema (grafos por dominio). Alihas LEE, no modifica.",
+      "command": "node",
+      "args": ["../../../COMPLEMENTOS-ALIHANED_Os/MemorIHA/Subconsciente/dist/index.js"],
+      "_estado": "existe v1.1.0, compilado. Verificar config.json sin secretos.",
+      "_modo": "lectura"
+    },
+    "neurogestor-bridge": {
+      "_rol": "Gobierno/seguridad y Corredor NeuroAgentico. 16 tools: lectura, diagnóstico dirigido, configuración y reparación segura con grant.",
+      "command": "node",
+      "args": ["C:\\Users\\dell\\Desktop\\ECOSYSTEM_AlianeD\\ALiHaneD\\ALiHANED-OS\\NEUROGESTOR\\dashboard\\lib\\mcp\\neurogestor-mcp-server.js"],
+      "env": {
+        "NEUROGESTOR_URL": "${NEUROGESTOR_URL}",
+        "ARMOR_WEBHOOK_SECRET": "${ARMOR_WEBHOOK_SECRET}",
+        "ARMOR_WEBHOOK_SECRET_HERMES": "${ARMOR_WEBHOOK_SECRET_HERMES}"
+      },
+      "_estado": "implementado; el runtime Hermes activo ya lo tiene registrado. Verificar URL/grant antes de escribir.",
+      "_modo": "lectura_por_defecto_con_escritura_otorgada"
+    },
+    "adrive": {
+      "_rol": "Archivos privados del usuario sobre Telegram. Tools: upload/download/list. El .session es credencial TOTAL → Vault.",
+      "command": "uv",
+      "args": ["run", "--directory", "../../../NUBE_DRAIMER/MCP_ADrive", "python", "-m", "src"],
+      "_estado": "existe (~75%). PENDIENTE: diagnosticar por qué mcp-adrive no conecta hoy en Claude Code (ver ROADMAP_COMPLEMENTOS §6)."
+    }
+  },
+  "_no_conectar_todavia": {
+    "teoigo_ahisentido_voz": "NO crear MCP de voz esta semana. TEOIGO ya dicta en Windows sin MCP. La voz-MCP llega con AhíSentido en octubre (gate del maestro).",
+    "razon": "Directiva CEO 2026-07-02: 'si no lo necesita, amén, mejor todavía'. Menos superficie = más rápido a producción."
+  }
+}
